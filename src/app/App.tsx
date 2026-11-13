@@ -9,10 +9,12 @@ import { Permissions } from './components/Permissions';
 import { SalaryAdjustment } from './components/SalaryAdjustment';
 import { MealVoucherAdjustment } from './components/MealVoucherAdjustment';
 import { Promotions } from './components/Promotions';
+import { Solicitacoes } from './components/Solicitacoes';
+import { PontoEquipe } from './components/PontoEquipe';
 import { Login } from './components/Login';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
-type ViewType = 'dashboard' | 'organogram' | 'profile' | 'newEmployee' | 'permissions' | 'salaryAdjustment' | 'mealVoucherAdjustment' | 'promotions';
+type ViewType = 'dashboard' | 'organogram' | 'profile' | 'newEmployee' | 'permissions' | 'salaryAdjustment' | 'mealVoucherAdjustment' | 'promotions' | 'solicitacoes' | 'pontoEquipe';
 
 export default function App() {
   return (
@@ -48,6 +50,8 @@ const VIEWS_RH_OU_ADMIN: ViewType[] = [
   'salaryAdjustment',
   'mealVoucherAdjustment',
   'promotions',
+  'solicitacoes',
+  'pontoEquipe',
 ];
 
 function AuthenticatedApp() {
@@ -98,6 +102,8 @@ function AuthenticatedApp() {
           {viewEfetiva === 'salaryAdjustment' && <SalaryAdjustment />}
           {viewEfetiva === 'mealVoucherAdjustment' && <MealVoucherAdjustment />}
           {viewEfetiva === 'promotions' && <Promotions />}
+          {viewEfetiva === 'solicitacoes' && <Solicitacoes />}
+          {viewEfetiva === 'pontoEquipe' && <PontoEquipe />}
         </main>
       </div>
     </div>

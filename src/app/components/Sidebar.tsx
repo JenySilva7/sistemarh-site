@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { LayoutDashboard, Network, User, UserPlus, Shield, Users, DollarSign, Utensils, TrendingUp, X, LogOut } from 'lucide-react';
+import { LayoutDashboard, Network, User, UserPlus, Shield, Users, DollarSign, Utensils, TrendingUp, X, LogOut, ClipboardCheck, Clock } from 'lucide-react';
 import '../styles/hr-system.css';
 import { useAuth } from '../context/AuthContext';
 
-type ViewType = 'dashboard' | 'organogram' | 'profile' | 'newEmployee' | 'permissions' | 'salaryAdjustment' | 'mealVoucherAdjustment' | 'promotions';
+type ViewType = 'dashboard' | 'organogram' | 'profile' | 'newEmployee' | 'permissions' | 'salaryAdjustment' | 'mealVoucherAdjustment' | 'promotions' | 'solicitacoes' | 'pontoEquipe';
 
 interface SidebarProps {
   activeView: ViewType;
@@ -128,6 +128,22 @@ export function Sidebar({ activeView, onViewChange, isOpen, onClose }: SidebarPr
                   </div>
                 )}
               </div>
+
+              <button
+                onClick={() => onViewChange('solicitacoes')}
+                className={`botao-menu ${activeView === 'solicitacoes' ? 'ativo' : ''}`}
+              >
+                <ClipboardCheck size={20} />
+                <span>Justificativas</span>
+              </button>
+
+              <button
+                onClick={() => onViewChange('pontoEquipe')}
+                className={`botao-menu ${activeView === 'pontoEquipe' ? 'ativo' : ''}`}
+              >
+                <Clock size={20} />
+                <span>Ponto da equipe</span>
+              </button>
 
               <button
                 onClick={() => onViewChange('permissions')}
