@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { User, DollarSign, Briefcase, Clock, FileText, Download } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { formatarDataCalendario } from '../../utils/datas';
 
 type TabType = 'info' | 'salary' | 'position' | 'timebank' | 'payslip' | 'foodvoucher';
 
@@ -26,10 +27,10 @@ export function EmployeeProfile() {
     { id: 'foodvoucher' as const, label: 'Vale Alimentação', icon: FileText },
   ];
 
-  // Nome/e-mail/cargo/departamento/saldo do banco de horas vêm da API
-  // (GET /api/auth/me) — o resto (CPF, RG, endereço, composição salarial,
-  // holerite, vale-alimentação) ainda não tem fonte real no backend, então
-  // continua mockado por enquanto.
+  // Nome/e-mail/cargo/departamento/admissão/gestor/saldo do banco de horas
+  // vêm da API (GET /api/auth/me) — o resto (CPF, RG, endereço, composição
+  // salarial, holerite, vale-alimentação) ainda não tem fonte real no
+  // backend, então continua mockado por enquanto.
   const employeeData = {
     name: usuario?.nome ?? '',
     email: usuario?.email ?? '',
@@ -38,7 +39,7 @@ export function EmployeeProfile() {
     birthDate: '15/03/1990',
     phone: '(11) 98765-4321',
     address: 'Rua das Flores, 123 - São Paulo, SP',
-    admissionDate: '01/06/2020',
+    admissionDate: formatarDataCalendario(usuario?.dataAdmissao) ?? 'Não informado',
     department: usuario?.departamento || 'Não informado',
     position: usuario?.cargo || 'Não informado',
     salary: 'R$ 12.000,00',
@@ -46,7 +47,7 @@ export function EmployeeProfile() {
     benefits: 'R$ 2.000,00',
     foodVoucher: 'R$ 600,00',
     healthInsurance: 'R$ 450,00',
-    manager: 'Maria Santos',
+    manager: usuario?.gerenteNome || 'Não informado',
   };
 
   const saldoBancoHoras = usuario ? formatarSaldoBancoHoras(usuario.saldoBancoHorasMinutos) : '+0h00';

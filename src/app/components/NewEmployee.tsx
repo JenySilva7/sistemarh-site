@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { UserPlus, Save, X, Loader2, Plus } from 'lucide-react';
+import { UserPlus, Save, X, Loader2, Plus, Eye, EyeOff } from 'lucide-react';
 import { api, ApiError } from '../../services/api';
 import { useAuth } from '../context/AuthContext';
 import type { CargoDto, DepartamentoDto, FuncionarioDto } from '../../types/api';
@@ -18,7 +18,10 @@ const FORM_INICIAL = {
   departamentoId: '',
   cargoId: '',
   gerenteId: '',
+  senhaAcessoApp: '',
 };
+
+const TAMANHO_MINIMO_SENHA_APP = 6;
 
 export function NewEmployee() {
   const { token } = useAuth();
@@ -36,6 +39,9 @@ export function NewEmployee() {
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [sucesso, setSucesso] = useState<string | null>(null);
+  const [mostrarSenhaApp, setMostrarSenhaApp] = useState(false);
+
+  const criaAcessoApp = formData.senhaAcessoApp.length > 0;
 
   useEffect(() => {
     if (!token) return;
@@ -108,21 +114,38 @@ export function NewEmployee() {
       return;
     }
 
+    const email = formData.email.trim();
+    if (criaAcessoApp && !email) {
+      setErro('Para criar o acesso ao app, informe o e-mail corporativo — é com ele que o colaborador entra no app.');
+      return;
+    }
+    if (criaAcessoApp && formData.senhaAcessoApp.length < TAMANHO_MINIMO_SENHA_APP) {
+      setErro(`A senha de acesso ao app precisa ter pelo menos ${TAMANHO_MINIMO_SENHA_APP} caracteres.`);
+      return;
+    }
+
     setEnviando(true);
     try {
       const criado = await api.criarFuncionario(token, {
         nome: formData.nome.trim(),
         cpf: formData.cpf.trim(),
-        email: formData.email.trim() || undefined,
+        email: email || undefined,
         telefone: formData.telefone.trim() || undefined,
         dataNascimento: formData.dataNascimento || undefined,
         dataAdmissao: formData.dataAdmissao,
         departamentoId: Number(formData.departamentoId),
         cargoId: Number(formData.cargoId),
         gerenteId: formData.gerenteId ? Number(formData.gerenteId) : undefined,
+        senhaAcessoApp: criaAcessoApp ? formData.senhaAcessoApp : undefined,
       });
-      setSucesso(`${criado.nome} foi cadastrado(a) com sucesso em ${criado.departamentoNome} e já aparece no Organograma.`);
+      const mensagemApp = criaAcessoApp
+        ? ` Ele(a) já pode entrar no app com o e-mail ${criado.email ?? email} e a senha definida.`
+        : '';
+      setSucesso(
+        `${criado.nome} foi cadastrado(a) com sucesso em ${criado.departamentoNome} e já aparece no Organograma.${mensagemApp}`
+      );
       setFormData(FORM_INICIAL);
+      setMostrarSenhaApp(false);
       setFuncionarios((prev) => [...prev, criado]);
     } catch (e) {
       setErro(e instanceof ApiError ? e.message : 'Não foi possível cadastrar o colaborador.');
@@ -133,6 +156,7 @@ export function NewEmployee() {
 
   function handleReset() {
     setFormData(FORM_INICIAL);
+    setMostrarSenhaApp(false);
     setErro(null);
     setSucesso(null);
   }
@@ -183,7 +207,7 @@ export function NewEmployee() {
 
               <div>
                 <label htmlFor="email" className="block text-sm mb-2">
-                  E-mail Corporativo
+                  E-mail Corporativo {criaAcessoApp && <span className="text-red-500">*</span>}
                 </label>
                 <input
                   type="email"
@@ -368,6 +392,43 @@ export function NewEmployee() {
                 </select>
                 <p className="mt-1.5 text-xs text-muted-foreground">
                   Define onde esse colaborador aparece no Organograma.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Acesso ao App */}
+          <div>
+            <h2 className="text-xl mb-4 pb-2 border-b border-border">Acesso ao App</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label htmlFor="senhaAcessoApp" className="block text-sm mb-2">
+                  Senha de acesso ao app (opcional)
+                </label>
+                <div className="relative">
+                  <input
+                    type={mostrarSenhaApp ? 'text' : 'password'}
+                    id="senhaAcessoApp"
+                    name="senhaAcessoApp"
+                    value={formData.senhaAcessoApp}
+                    onChange={handleChange}
+                    minLength={TAMANHO_MINIMO_SENHA_APP}
+                    autoComplete="new-password"
+                    className="w-full pl-4 pr-10 py-2 bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                    placeholder="Mínimo de 6 caracteres"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setMostrarSenhaApp((v) => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    aria-label={mostrarSenhaApp ? 'Ocultar senha' : 'Mostrar senha'}
+                  >
+                    {mostrarSenhaApp ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  Se preenchida, o colaborador já poderá entrar no app com o e-mail corporativo e essa senha (o
+                  e-mail passa a ser obrigatório). Dá para criar o acesso depois, pelo Organograma.
                 </p>
               </div>
             </div>

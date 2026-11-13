@@ -1,5 +1,5 @@
-import { Mail, Phone, X, Loader2, UserMinus } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { Mail, Phone, X, Loader2, UserMinus, Smartphone, KeyRound } from 'lucide-react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import '../styles/hr-system.css';
 import { api, ApiError } from '../../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -36,19 +36,70 @@ function montarArvore(funcionarios: FuncionarioDto[]): NoOrganograma[] {
   return raizes;
 }
 
+const TAMANHO_MINIMO_SENHA_APP = 6;
+
 function EmployeeCard({
   funcionario,
   cor,
   onDesligado,
+  onAcessoAppAlterado,
 }: {
   funcionario: NoOrganograma;
   cor: string;
   onDesligado: () => void;
+  onAcessoAppAlterado: () => void;
 }) {
   const { token, isRhOuAdmin } = useAuth();
   const [mostrarDetalhes, setMostrarDetalhes] = useState(false);
   const [desligando, setDesligando] = useState(false);
   const [erroDesligar, setErroDesligar] = useState<string | null>(null);
+
+  const [editandoAcessoApp, setEditandoAcessoApp] = useState(false);
+  const [senhaApp, setSenhaApp] = useState('');
+  const [salvandoAcessoApp, setSalvandoAcessoApp] = useState(false);
+  const [erroAcessoApp, setErroAcessoApp] = useState<string | null>(null);
+  const [sucessoAcessoApp, setSucessoAcessoApp] = useState<string | null>(null);
+  // Vale até a lista recarregada chegar com possuiAcessoApp atualizado.
+  const [acessoAppCriado, setAcessoAppCriado] = useState(false);
+  const possuiAcessoApp = funcionario.possuiAcessoApp || acessoAppCriado;
+
+  function fecharDetalhes() {
+    setMostrarDetalhes(false);
+    setEditandoAcessoApp(false);
+    setSenhaApp('');
+    setErroAcessoApp(null);
+    setSucessoAcessoApp(null);
+  }
+
+  async function handleSalvarAcessoApp(e: FormEvent) {
+    e.preventDefault();
+    if (!token) return;
+    if (senhaApp.length < TAMANHO_MINIMO_SENHA_APP) {
+      setErroAcessoApp(`A senha precisa ter pelo menos ${TAMANHO_MINIMO_SENHA_APP} caracteres.`);
+      return;
+    }
+
+    const jaTinhaAcesso = possuiAcessoApp;
+    setSalvandoAcessoApp(true);
+    setErroAcessoApp(null);
+    setSucessoAcessoApp(null);
+    try {
+      const atualizado = await api.definirAcessoApp(token, funcionario.id, senhaApp);
+      setAcessoAppCriado(atualizado.possuiAcessoApp ?? true);
+      setSucessoAcessoApp(
+        jaTinhaAcesso
+          ? 'Senha do app redefinida. Passe a nova senha para o colaborador.'
+          : `Acesso criado. ${funcionario.nome} já pode entrar no app com ${atualizado.email ?? funcionario.email}.`
+      );
+      setEditandoAcessoApp(false);
+      setSenhaApp('');
+      onAcessoAppAlterado();
+    } catch (erro) {
+      setErroAcessoApp(erro instanceof ApiError ? erro.message : 'Não foi possível definir o acesso ao app.');
+    } finally {
+      setSalvandoAcessoApp(false);
+    }
+  }
 
   async function handleDesligar() {
     if (!token) return;
@@ -78,7 +129,7 @@ function EmployeeCard({
       }
 
       await api.desligarFuncionario(token, funcionario.id);
-      setMostrarDetalhes(false);
+      fecharDetalhes();
       onDesligado();
     } catch (e) {
       setErroDesligar(e instanceof ApiError ? e.message : 'Não foi possível desligar o colaborador.');
@@ -98,13 +149,13 @@ function EmployeeCard({
       </div>
 
       {mostrarDetalhes && (
-        <div className="modal-fundo" onClick={() => setMostrarDetalhes(false)}>
+        <div className="modal-fundo" onClick={fecharDetalhes}>
           <div className="modal-conteudo" onClick={(e) => e.stopPropagation()}>
             <div className="flex justify-between items-center mb-5 gap-3">
               <h2 className="m-0 text-xl sm:text-2xl text-gray-800 font-semibold break-words flex-1 min-w-0">
                 {funcionario.nome}
               </h2>
-              <button className="botao-fechar shrink-0" onClick={() => setMostrarDetalhes(false)}>
+              <button className="botao-fechar shrink-0" onClick={fecharDetalhes}>
                 <X size={20} />
               </button>
             </div>
@@ -140,10 +191,83 @@ function EmployeeCard({
                 <span className="text-gray-500">Departamento</span>
                 <span className="text-gray-800 font-medium">{funcionario.departamentoNome}</span>
               </div>
+              <div className="linha-info">
+                <span className="flex items-center gap-2 text-gray-500">
+                  <Smartphone size={16} />
+                  Acesso ao app
+                </span>
+                <span className={`font-medium ${possuiAcessoApp ? 'text-green-600' : 'text-gray-800'}`}>
+                  {possuiAcessoApp ? 'Sim' : 'Não'}
+                </span>
+              </div>
             </div>
 
             {isRhOuAdmin && (
               <div className="mt-5 pt-4 border-t border-gray-200">
+                {sucessoAcessoApp && (
+                  <p className="m-0 mb-3 px-3 py-2 rounded-lg bg-green-50 border border-green-200 text-green-700 text-sm">
+                    {sucessoAcessoApp}
+                  </p>
+                )}
+                {erroAcessoApp && <p className="text-red-600 text-sm mb-3">{erroAcessoApp}</p>}
+
+                {!funcionario.email ? (
+                  <p className="m-0 mb-3 text-sm text-gray-500">
+                    Cadastre um e-mail para este colaborador antes de criar o acesso ao app.
+                  </p>
+                ) : editandoAcessoApp ? (
+                  <form onSubmit={handleSalvarAcessoApp} className="mb-3 space-y-2">
+                    <label htmlFor={`senha-app-${funcionario.id}`} className="block text-sm text-gray-600">
+                      {possuiAcessoApp ? 'Nova senha do app' : 'Senha de acesso ao app'}
+                    </label>
+                    <input
+                      id={`senha-app-${funcionario.id}`}
+                      type="password"
+                      value={senhaApp}
+                      onChange={(e) => setSenhaApp(e.target.value)}
+                      minLength={TAMANHO_MINIMO_SENHA_APP}
+                      required
+                      autoFocus
+                      autoComplete="new-password"
+                      placeholder="Mínimo de 6 caracteres"
+                      className="w-full px-4 py-2 bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                    />
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <button
+                        type="submit"
+                        disabled={salvandoAcessoApp}
+                        className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-60"
+                      >
+                        {salvandoAcessoApp ? <Loader2 size={16} className="animate-spin" /> : <KeyRound size={16} />}
+                        Confirmar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditandoAcessoApp(false);
+                          setSenhaApp('');
+                          setErroAcessoApp(null);
+                        }}
+                        className="flex-1 px-4 py-2 rounded-lg bg-accent text-accent-foreground hover:bg-accent/80 transition-colors"
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  </form>
+                ) : (
+                  <button
+                    onClick={() => {
+                      setEditandoAcessoApp(true);
+                      setErroAcessoApp(null);
+                      setSucessoAcessoApp(null);
+                    }}
+                    className="w-full mb-3 flex items-center justify-center gap-2 px-4 py-2 rounded-lg border border-primary/40 text-primary hover:bg-primary/5 transition-colors"
+                  >
+                    <KeyRound size={16} />
+                    {possuiAcessoApp ? 'Redefinir senha do app' : 'Criar acesso ao app'}
+                  </button>
+                )}
+
                 {erroDesligar && <p className="text-red-600 text-sm mb-3">{erroDesligar}</p>}
                 <button
                   onClick={handleDesligar}
@@ -164,7 +288,13 @@ function EmployeeCard({
           <div className="w-0.5 h-6 sm:h-8 bg-gray-300 mx-auto" />
           <div className="flex flex-wrap gap-3 sm:gap-6 justify-start">
             {funcionario.subordinados.map((sub) => (
-              <EmployeeCard key={sub.id} funcionario={sub} cor="#10b981" onDesligado={onDesligado} />
+              <EmployeeCard
+                key={sub.id}
+                funcionario={sub}
+                cor="#10b981"
+                onDesligado={onDesligado}
+                onAcessoAppAlterado={onAcessoAppAlterado}
+              />
             ))}
           </div>
         </div>
@@ -179,21 +309,28 @@ export function Organogram() {
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
 
-  async function carregar() {
+  // `silencioso` recarrega sem trocar a árvore pelo spinner — assim o modal
+  // aberto (ex. depois de criar o acesso ao app) continua na tela.
+  async function carregar(silencioso = false) {
     if (!token) return;
-    setCarregando(true);
-    setErro(null);
+    if (!silencioso) {
+      setCarregando(true);
+      setErro(null);
+    }
     try {
       const lista = await api.listarFuncionarios(token);
       setFuncionarios(lista.filter((f) => f.status === StatusFuncionario.Ativo));
     } catch (e) {
+      if (silencioso) return;
       setErro(
         e instanceof ApiError && e.status === 403
           ? 'Só RH/Admin pode ver o organograma completo.'
-          : 'Não foi possível carregar o organograma.'
+          : e instanceof ApiError
+            ? e.message
+            : 'Não foi possível carregar o organograma.'
       );
     } finally {
-      setCarregando(false);
+      if (!silencioso) setCarregando(false);
     }
   }
 
@@ -231,7 +368,12 @@ export function Organogram() {
           <div className="flex flex-col items-start gap-10">
             {raizes.map((raiz) => (
               <div key={raiz.id} className="flex justify-center min-w-max">
-                <EmployeeCard funcionario={raiz} cor="#3b82f6" onDesligado={carregar} />
+                <EmployeeCard
+                  funcionario={raiz}
+                  cor="#3b82f6"
+                  onDesligado={() => carregar()}
+                  onAcessoAppAlterado={() => carregar(true)}
+                />
               </div>
             ))}
           </div>

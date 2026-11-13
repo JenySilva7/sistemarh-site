@@ -1,54 +1,130 @@
 import { useEffect, useState } from 'react';
-import { Users, Briefcase, TrendingUp, Calendar, Loader2 } from 'lucide-react';
+import { Users, Briefcase, ClipboardCheck, Clock, Loader2, type LucideIcon } from 'lucide-react';
 import '../styles/hr-system.css';
 import { useAuth } from '../context/AuthContext';
 import { api, ApiError } from '../../services/api';
-import { StatusFuncionario, type DepartamentoDto, type FuncionarioDto } from '../../types/api';
+import {
+  StatusAusencia,
+  StatusFuncionario,
+  StatusRecrutamento,
+  type DepartamentoDto,
+  type FuncionarioDto,
+} from '../../types/api';
+import { hojeEmBrasilia } from '../../utils/datas';
+
+interface Indicadores {
+  candidatosEmProcesso: number | null;
+  justificativasPendentes: number | null;
+  pontoHoje: number | null;
+}
+
+const INDICADORES_VAZIOS: Indicadores = { candidatosEmProcesso: null, justificativasPendentes: null, pontoHoje: null };
+
+function contar<T>(resultado: PromiseSettledResult<T[] | null>, contagem: (lista: T[]) => number): number | null {
+  return resultado.status === 'fulfilled' && resultado.value ? contagem(resultado.value) : null;
+}
+
+function CardIndicador({
+  icone: Icone,
+  cor,
+  titulo,
+  valor,
+  detalhe,
+  carregando,
+}: {
+  icone: LucideIcon;
+  cor?: string;
+  titulo: string;
+  valor: number | null;
+  detalhe?: string;
+  carregando: boolean;
+}) {
+  return (
+    <div className="card-simples !mb-0">
+      <div className="flex justify-between items-center mb-4">
+        <div className="icone-card" style={cor ? { backgroundColor: cor } : undefined}>
+          <Icone size={24} />
+        </div>
+      </div>
+      <h3 className="m-0 text-gray-500 text-sm">{titulo}</h3>
+      <p className="mt-1 mb-0 text-3xl sm:text-4xl font-bold text-gray-800">
+        {carregando ? <Loader2 className="w-6 h-6 animate-spin text-gray-400" /> : (valor ?? '—')}
+      </p>
+      {detalhe && <p className="m-0 mt-1 text-xs text-gray-400">{detalhe}</p>}
+    </div>
+  );
+}
 
 export function Dashboard() {
-  const { token } = useAuth();
+  const { token, isRhOuAdmin } = useAuth();
   const [funcionarios, setFuncionarios] = useState<FuncionarioDto[] | null>(null);
   const [departamentos, setDepartamentos] = useState<DepartamentoDto[]>([]);
+  const [indicadores, setIndicadores] = useState<Indicadores>(INDICADORES_VAZIOS);
   const [semPermissao, setSemPermissao] = useState(false);
+  const [erroCarga, setErroCarga] = useState<string | null>(null);
   const [carregando, setCarregando] = useState(true);
 
   useEffect(() => {
     if (!token) return;
-
+    const t = token;
     let cancelado = false;
+
+    // As rotas de RH nem são chamadas pra quem não é RH/Admin (dariam 403).
+    function soRh<T>(chamada: () => Promise<T>): Promise<T | null> {
+      return isRhOuAdmin ? chamada() : Promise.resolve(null);
+    }
 
     async function carregar() {
       setCarregando(true);
-      try {
-        const deps = await api.listarDepartamentos(token!);
-        if (cancelado) return;
-        setDepartamentos(deps);
-      } catch {
-        // departamentos é aberto a qualquer usuário autenticado — se falhar
-        // mesmo assim, só deixa a lista vazia.
+      setErroCarga(null);
+
+      const [resDeps, resFunc, resRecrutamento, resAusencias, resPonto] = await Promise.allSettled([
+        api.listarDepartamentos(t),
+        api.listarFuncionarios(t),
+        soRh(() => api.listarRecrutamentos(t)),
+        soRh(() => api.listarAusenciasRh(t)),
+        soRh(() => api.listarPontoRh(t, hojeEmBrasilia())),
+      ]);
+      if (cancelado) return;
+
+      if (resDeps.status === 'fulfilled') setDepartamentos(resDeps.value);
+      if (resFunc.status === 'fulfilled') {
+        setFuncionarios(resFunc.value);
+      } else if (resFunc.reason instanceof ApiError && resFunc.reason.status === 403) {
+        // Rota administrativa — usuário comum (perfil Funcionario) não tem acesso.
+        setSemPermissao(true);
       }
 
-      try {
-        const func = await api.listarFuncionarios(token!);
-        if (cancelado) return;
-        setFuncionarios(func);
-      } catch (erro) {
-        if (erro instanceof ApiError && erro.status === 403) {
-          // Rota administrativa — usuário comum (perfil Funcionario) não tem acesso.
-          setSemPermissao(true);
-        }
-      } finally {
-        if (!cancelado) setCarregando(false);
+      setIndicadores({
+        // Os registros de recrutamento são candidatos; "em processo" = ainda
+        // sem decisão (em processo ou em entrevista).
+        candidatosEmProcesso: contar(resRecrutamento, (lista) =>
+          lista.filter((r) => r.status === StatusRecrutamento.EmProcesso || r.status === StatusRecrutamento.Entrevista).length
+        ),
+        justificativasPendentes: contar(resAusencias, (lista) =>
+          lista.filter((a) => a.status === StatusAusencia.Enviada || a.status === StatusAusencia.EmAnalise).length
+        ),
+        pontoHoje: contar(resPonto, (lista) => new Set(lista.map((r) => r.usuarioId)).size),
+      });
+
+      const falhas = [resDeps, resFunc, resRecrutamento, resAusencias, resPonto]
+        .filter((r): r is PromiseRejectedResult => r.status === 'rejected')
+        .map((r) => r.reason)
+        .filter((motivo) => !(motivo instanceof ApiError && motivo.status === 403));
+      if (falhas.length > 0) {
+        setErroCarga(falhas[0] instanceof ApiError ? falhas[0].message : 'Ocorreu um erro inesperado.');
       }
+
+      setCarregando(false);
     }
 
     carregar();
     return () => {
       cancelado = true;
     };
-  }, [token]);
+  }, [token, isRhOuAdmin]);
 
-  const totalAtivos = funcionarios?.filter((f) => f.status === StatusFuncionario.Ativo).length ?? 0;
+  const totalAtivos = funcionarios?.filter((f) => f.status === StatusFuncionario.Ativo).length ?? null;
 
   const porDepartamento = departamentos.map((dep) => ({
     nome: dep.nome,
@@ -65,59 +141,49 @@ export function Dashboard() {
       {semPermissao && (
         <div className="card-simples !mb-6 border-amber-300 bg-amber-50">
           <p className="text-sm text-amber-700 m-0">
-            Sua conta não tem perfil de RH/Admin — os números de funcionários abaixo não estão disponíveis pra você.
+            Sua conta não tem perfil de RH/Admin — os indicadores abaixo não estão disponíveis pra você.
           </p>
+        </div>
+      )}
+
+      {erroCarga && (
+        <div className="mb-6 px-4 py-3 rounded-lg bg-red-50 border border-red-200 text-red-600 text-sm">
+          Alguns indicadores não puderam ser carregados. {erroCarga}
         </div>
       )}
 
       {/* Cards de Estatísticas */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 sm:gap-5 mb-6 sm:mb-8">
-
-        {/* Card 1 - Total de Funcionários (real) */}
-        <div className="card-simples !mb-0">
-          <div className="flex justify-between items-center mb-4">
-            <div className="icone-card">
-              <Users size={24} />
-            </div>
-          </div>
-          <h3 className="m-0 text-gray-500 text-sm">Total de Funcionários Ativos</h3>
-          <p className="mt-1 text-3xl sm:text-4xl font-bold text-gray-800">
-            {carregando ? <Loader2 className="w-6 h-6 animate-spin text-gray-400" /> : semPermissao ? '—' : totalAtivos}
-          </p>
-        </div>
-
-        {/* Card 2 - Vagas Abertas (ainda não tem fonte real no backend) */}
-        <div className="card-simples !mb-0">
-          <div className="flex justify-between items-center mb-4">
-            <div className="icone-card" style={{ backgroundColor: '#10b981' }}>
-              <Briefcase size={24} />
-            </div>
-          </div>
-          <h3 className="m-0 text-gray-500 text-sm">Vagas Abertas</h3>
-          <p className="mt-1 text-3xl sm:text-4xl font-bold text-gray-800">18</p>
-        </div>
-
-        {/* Card 3 - Satisfação (ainda não tem fonte real no backend) */}
-        <div className="card-simples !mb-0">
-          <div className="flex justify-between items-center mb-4">
-            <div className="icone-card" style={{ backgroundColor: '#8b5cf6' }}>
-              <TrendingUp size={24} />
-            </div>
-          </div>
-          <h3 className="m-0 text-gray-500 text-sm">Satisfação</h3>
-          <p className="mt-1 text-3xl sm:text-4xl font-bold text-gray-800">90%</p>
-        </div>
-
-        {/* Card 4 - Férias Pendentes (ainda não tem fonte real no backend) */}
-        <div className="card-simples !mb-0">
-          <div className="flex justify-between items-center mb-4">
-            <div className="icone-card" style={{ backgroundColor: '#f59e0b' }}>
-              <Calendar size={24} />
-            </div>
-          </div>
-          <h3 className="m-0 text-gray-500 text-sm">Férias Pendentes</h3>
-          <p className="mt-1 text-3xl sm:text-4xl font-bold text-gray-800">24</p>
-        </div>
+        <CardIndicador
+          icone={Users}
+          titulo="Total de Funcionários Ativos"
+          valor={semPermissao ? null : totalAtivos}
+          carregando={carregando}
+        />
+        <CardIndicador
+          icone={Briefcase}
+          cor="#10b981"
+          titulo="Candidatos em processo"
+          valor={indicadores.candidatosEmProcesso}
+          detalhe="Em processo seletivo ou entrevista"
+          carregando={carregando}
+        />
+        <CardIndicador
+          icone={ClipboardCheck}
+          cor="#8b5cf6"
+          titulo="Justificativas pendentes"
+          valor={indicadores.justificativasPendentes}
+          detalhe="Enviadas pelo app ou em análise"
+          carregando={carregando}
+        />
+        <CardIndicador
+          icone={Clock}
+          cor="#f59e0b"
+          titulo="Ponto registrado hoje"
+          valor={indicadores.pontoHoje}
+          detalhe="Colaboradores com ao menos uma batida"
+          carregando={carregando}
+        />
       </div>
 
       {/* Informações Adicionais */}
