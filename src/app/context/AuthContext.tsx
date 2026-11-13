@@ -1,5 +1,5 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import { api, ApiError } from '../../services/api';
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { api, ApiError, definirHandlerNaoAutorizado, MENSAGEM_SESSAO_EXPIRADA } from '../../services/api';
 import type { PerfilUsuario, UsuarioDto } from '../../types/api';
 
 const TOKEN_STORAGE_KEY = 'sistemarh.token';
@@ -40,6 +40,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [perfil, setPerfil] = useState<PerfilUsuario | null>(null);
   const [loading, setLoading] = useState(true);
   const [erroLogin, setErroLogin] = useState<string | null>(null);
+  // Cópia síncrona do token atual, lida pelo handler de 401 (que vive fora do
+  // ciclo de render).
+  const tokenAtualRef = useRef<string | null>(null);
+
+  function iniciarSessao(novoToken: string, novoUsuario: UsuarioDto) {
+    tokenAtualRef.current = novoToken;
+    setToken(novoToken);
+    setUsuario(novoUsuario);
+    setPerfil(decodificarPerfilDoToken(novoToken));
+  }
+
+  function logout() {
+    tokenAtualRef.current = null;
+    localStorage.removeItem(TOKEN_STORAGE_KEY);
+    setToken(null);
+    setUsuario(null);
+    setPerfil(null);
+  }
+
+  // Qualquer chamada autenticada que volte 401 (token de 120 min expirado)
+  // encerra a sessão e leva pro login com o aviso.
+  useEffect(() => {
+    definirHandlerNaoAutorizado((tokenUsado) => {
+      // Uma resposta atrasada de uma sessão antiga não pode derrubar o login novo.
+      if (tokenAtualRef.current !== null && tokenAtualRef.current !== tokenUsado) return;
+      logout();
+      setErroLogin(MENSAGEM_SESSAO_EXPIRADA);
+    });
+    return () => definirHandlerNaoAutorizado(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Ao carregar a página, tenta restaurar a sessão a partir do token salvo.
   useEffect(() => {
@@ -51,16 +82,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     api
       .me(tokenSalvo)
-      .then((usuarioRestaurado) => {
-        setToken(tokenSalvo);
-        setUsuario(usuarioRestaurado);
-        setPerfil(decodificarPerfilDoToken(tokenSalvo));
-      })
-      .catch(() => {
-        // Token expirado/inválido — limpa e volta pra tela de login.
-        localStorage.removeItem(TOKEN_STORAGE_KEY);
+      .then((usuarioRestaurado) => iniciarSessao(tokenSalvo, usuarioRestaurado))
+      .catch((erro) => {
+        // 401 já foi tratado pelo handler acima. Servidor fora do ar não
+        // invalida o token: ele fica salvo pra próxima tentativa.
+        if (erro instanceof ApiError && erro.status !== 401) {
+          setErroLogin(erro.message);
+        }
       })
       .finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function login(email: string, senha: string) {
@@ -68,21 +99,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const resposta = await api.login(email, senha);
       localStorage.setItem(TOKEN_STORAGE_KEY, resposta.token);
-      setToken(resposta.token);
-      setUsuario(resposta.usuario);
-      setPerfil(decodificarPerfilDoToken(resposta.token));
+      iniciarSessao(resposta.token, resposta.usuario);
     } catch (erro) {
       const mensagem = erro instanceof ApiError ? erro.message : 'Não foi possível conectar ao servidor.';
       setErroLogin(mensagem);
       throw erro;
     }
-  }
-
-  function logout() {
-    localStorage.removeItem(TOKEN_STORAGE_KEY);
-    setToken(null);
-    setUsuario(null);
-    setPerfil(null);
   }
 
   const value: AuthContextValue = {
