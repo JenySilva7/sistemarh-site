@@ -42,7 +42,7 @@ function AppGate() {
 
   if (loading) {
     return (
-      <div className="min-h-screen w-full flex items-center justify-center bg-gray-100" role="status">
+      <div className="flex h-screen h-dvh bg-gray-100 overflow-hidden">
         <Loader2 className="w-6 h-6 animate-spin text-primary" aria-hidden="true" />
         <span className="sr-only">Carregando…</span>
       </div>
