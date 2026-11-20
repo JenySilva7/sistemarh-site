@@ -343,6 +343,9 @@
     position: fixed;
     width: 260px;
     max-width: 80vw;
+    height: 100vh;
+    height: 100dvh;
+    padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
   }
 
   /* Sombra só com o menu aberto: escondido (fora da tela), ela vazava
